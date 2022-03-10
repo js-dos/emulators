@@ -30,6 +30,7 @@ set(SOURCES_CORE_CXX11
         "${CMAKE_CURRENT_LIST_DIR}/../dosbox/src/dos/dos_files.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../dosbox/src/dos/cdrom_image.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../dosbox/src/hardware/pic.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/../dosbox/src/cpu/core_normal.cpp"
         )
 
 
@@ -40,7 +41,6 @@ set(SOURCES_CORE_CXX03
         "${CMAKE_CURRENT_LIST_DIR}/../dosbox/src/cpu/core_dyn_x86.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../dosbox/src/cpu/core_full.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../dosbox/src/cpu/core_dynrec.cpp"
-        "${CMAKE_CURRENT_LIST_DIR}/../dosbox/src/cpu/core_normal.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../dosbox/src/cpu/cpu.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../dosbox/src/cpu/callback.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../dosbox/src/cpu/flags.cpp"

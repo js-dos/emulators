@@ -149,6 +149,9 @@ void client_network_disconnected(NetworkType networkType) {
   printf("Network %d disconnected\n", networkType);
 }
 
+void server_loop() {
+}
+
 void sokolInit() {
   sg_desc gfxDescription = {};
   gfxDescription.buffer_pool_size = 4;

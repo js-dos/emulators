@@ -15,7 +15,7 @@ if(${EMSCRIPTEN})
 	set(CMAKE_CXX_FLAGS "${OPT_FLAGS} ${USE_PORTS}")
 	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} \
 		${USE_PORTS} \
-		${OPT_FLAGS} \
+		${OPT_FLAGS} -g \
 		-s TOTAL_STACK=1MB \
 		-s MALLOC=emmalloc \
 		--emit-symbol-map \

@@ -32,6 +32,34 @@
 #include <jsdos-asyncify.h>
 #endif
 
+
+enum PrefixOutcomeType {
+  Default, Break, Continue, CbRet, RestartOpCode, IllegalOpCode, DecodeEnd,
+};
+
+struct PrefixOutcome {
+  PrefixOutcomeType type;
+  Bits ret;
+};
+
+PrefixOutcome jsdosPrefixNone(Bitu opcode);
+PrefixOutcome jsdosPrefix0f(Bitu opcode);
+PrefixOutcome jsdosPrefix66(Bitu opcode);
+PrefixOutcome jsdosPrefix660f(Bitu opcode);
+
+#define EXECUTE_PREFIX(inst) {                               \
+    executeNextPrefix = false; \
+    auto outcome = inst; \
+    switch (outcome.type) {    \
+      case Default: executeNextPrefix = true; break; \
+      case CbRet: return outcome.ret; break; \
+      case Continue: continue; break; \
+      case RestartOpCode: goto restart_opcode; break; \
+      case IllegalOpCode: goto illegal_opcode; break; \
+      case DecodeEnd: goto decode_end; break; \
+    } \
+}
+
 #if C_DEBUG
 #include "debug.h"
 #endif
@@ -43,7 +71,7 @@
 #define SaveMb(off,val)	mem_writeb(off,val)
 #define SaveMw(off,val)	mem_writew(off,val)
 #define SaveMd(off,val)	mem_writed(off,val)
-#else 
+#else
 #include "paging.h"
 #define LoadMb(off) mem_readb_inline(off)
 #define LoadMw(off) mem_readw_inline(off)
@@ -139,7 +167,6 @@ static INLINE Bit32u Fetchd() {
 #include "core_normal/support.h"
 #include "core_normal/string.h"
 
-
 #define EALookupTable (core.ea_table)
 
 Bits CPU_Core_Normal_Run_Impl(void);
@@ -169,30 +196,43 @@ Bits CPU_Core_Normal_Run_Impl(void) {
 		cycle_count++;
 #endif
 restart_opcode:
-		switch (core.opcode_index+Fetchb()) {
-		#include "core_normal/prefix_none.h"
-		#include "core_normal/prefix_0f.h"
-		#include "core_normal/prefix_66.h"
-		#include "core_normal/prefix_66_0f.h"
-		default:
-		illegal_opcode:
-#if C_DEBUG	
-			{
-				Bitu len=(GETIP-reg_eip);
-				LOADIP;
-				if (len>16) len=16;
-				char tempcode[16*2+1];char * writecode=tempcode;
-				for (;len>0;len--) {
-					sprintf(writecode,"%02X",mem_readb(core.cseip++));
-					writecode+=2;
-				}
-				LOG(LOG_CPU,LOG_NORMAL)("Illegal/Unhandled opcode %s",tempcode);
-			}
+                auto opcode = core.opcode_index+Fetchb();
+                bool executeNextPrefix;
+
+                EXECUTE_PREFIX(jsdosPrefixNone(opcode));
+
+                if (executeNextPrefix) {
+                  EXECUTE_PREFIX(jsdosPrefix0f(opcode));
+
+                  if (executeNextPrefix) {
+                    EXECUTE_PREFIX(jsdosPrefix66(opcode));
+
+                    if (executeNextPrefix) {
+                      EXECUTE_PREFIX(jsdosPrefix660f(opcode));
+                      if (executeNextPrefix) {
+                        illegal_opcode :
+#if C_DEBUG
+                        {
+                          Bitu len = (GETIP - reg_eip);
+                          LOADIP;
+                          if (len > 16) len = 16;
+                          char tempcode[16 * 2 + 1];
+                          char* writecode = tempcode;
+                          for (; len > 0; len--) {
+                            sprintf(writecode, "%02X", mem_readb(core.cseip++));
+                            writecode += 2;
+                          }
+                          LOG(LOG_CPU, LOG_NORMAL)
+                          ("Illegal/Unhandled opcode %s", tempcode);
+                        }
 #endif
-			CPU_Exception(6,0);
-			continue;
-		}
-		SAVEIP;
+                          CPU_Exception(6, 0);
+                          continue;
+                      }
+                    }
+                  }
+              }
+              SAVEIP;
 	}
 	FillFlags();
 	return CBRET_NONE;
@@ -221,3 +261,108 @@ void CPU_Core_Normal_Init(void) {
 
 }
 
+#define JSDOS_RUNEXCEPTION() {										\
+	CPU_Exception(cpu.exception.which,cpu.exception.error);		\
+	return PrefixOutcome { .type = Continue };													\
+}
+
+#define JSDOS_EXCEPTION(blah)										\
+	{														\
+		CPU_Exception(blah);								\
+	        return PrefixOutcome { .type = Continue };											\
+	}
+
+
+#define JSDOS_JumpCond16_b(COND) {						\
+	SAVEIP;											\
+	if (COND) reg_ip+=Fetchbs();					\
+	reg_ip+=1;										\
+	return PrefixOutcome { .type = Continue };								\
+}
+
+#define JSDOS_JumpCond16_w(COND) {						\
+	SAVEIP;											\
+	if (COND) reg_ip+=Fetchws();					\
+	reg_ip+=2;										\
+        return PrefixOutcome { .type = Continue };								\
+}
+
+
+#define JSDOS_JumpCond32_b(COND) {						\
+	SAVEIP;											\
+	if (COND) reg_eip+=Fetchbs();					\
+	reg_eip+=1;										\
+        return PrefixOutcome { .type = Continue };								\
+}
+
+
+#define JSDOS_JumpCond32_d(COND) {						\
+	SAVEIP;											\
+	if (COND) reg_eip+=Fetchds();					\
+	reg_eip+=4;										\
+        return PrefixOutcome { .type = Continue };								\
+}
+
+#define JSDOS_DO_PREFIX_SEG(_SEG)					\
+	BaseDS=SegBase(_SEG);					\
+	BaseSS=SegBase(_SEG);					\
+	core.base_val_ds=_SEG;					\
+	return PrefixOutcome { .type = RestartOpCode };
+
+#define JSDOS_DO_PREFIX_ADDR()								\
+	core.prefixes=(core.prefixes & ~PREFIX_ADDR) |		\
+	(cpu.code.big ^ PREFIX_ADDR);						\
+	core.ea_table=&EATable[(core.prefixes&1) * 256];	\
+        return PrefixOutcome { .type = RestartOpCode };
+
+#define JSDOS_DO_PREFIX_REP(_ZERO)				\
+	core.prefixes|=PREFIX_REP;				\
+	core.rep_zero=_ZERO;					\
+        return PrefixOutcome { .type = RestartOpCode };
+
+#define RUNEXCEPTION JSDOS_RUNEXCEPTION
+#define EXCEPTION JSDOS_EXCEPTION
+#define JumpCond16_b JSDOS_JumpCond16_b
+#define JumpCond16_w JSDOS_JumpCond16_w
+#define JumpCond32_b JSDOS_JumpCond32_b
+#define JumpCond32_d JSDOS_JumpCond32_d
+#define DO_PREFIX_SEG JSDOS_DO_PREFIX_SEG
+#define DO_PREFIX_ADDR JSDOS_DO_PREFIX_ADDR
+#define DO_PREFIX_REP JSDOS_DO_PREFIX_REP
+
+PrefixOutcome jsdosPrefixNone(Bitu opcode) {
+  switch (opcode) {
+#include "core_normal/jsdos_prefix_none.h"
+    default: return PrefixOutcome { .type = Default };
+  }
+
+  return PrefixOutcome { .type = Break };
+}
+
+PrefixOutcome jsdosPrefix0f(Bitu opcode) {
+  switch (opcode) {
+#include "core_normal/jsdos_prefix_0f.h"
+    default: return PrefixOutcome { .type = Default };
+  }
+
+  return PrefixOutcome { .type = Break };
+}
+
+
+PrefixOutcome jsdosPrefix66(Bitu opcode) {
+  switch (opcode) {
+#include "core_normal/jsdos_prefix_66.h"
+    default: return PrefixOutcome { .type = Default };
+  }
+
+  return PrefixOutcome { .type = Break };
+}
+
+PrefixOutcome jsdosPrefix660f(Bitu opcode) {
+  switch (opcode) {
+#include "core_normal/jsdos_prefix_66_0f.h"
+    default: return PrefixOutcome { .type = Default };
+  }
+
+  return PrefixOutcome { .type = Break };
+}
