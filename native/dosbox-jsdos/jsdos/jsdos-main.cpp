@@ -3,6 +3,8 @@
 // Created by caiiiycuk on 26.02.2020.
 //
 
+#include "../dosbox/include/bios_disk.h"
+
 #include <config.h>
 #include <control.h>
 #include <jsdos-support.h>
@@ -21,6 +23,8 @@
 #include <emscripten.h>
 #include <emscripten/html5.h>
 #endif
+
+void swapInNextDisk(bool pressed);
 
 struct KBDHash {
   template <typename T>
@@ -368,7 +372,19 @@ void GFX_Events() {
 }
 
 
+bool press_ctrl = false;
 void server_add_key(KBD_KEYS key, bool pressed, uint64_t pressedMs) {
+	if (key == 341 && pressed == 1){ //ctrl
+		press_ctrl = true;
+	}
+	if (key == 341 && pressed == 0){ //ctrl
+		press_ctrl = false;
+	}
+	if (key == 49 && pressed == 1 && press_ctrl == true){ // 1
+		//DriveManager::CycleAllDisks();
+		swapInNextDisk(1);
+	}
+	
     keyEvents.push_back({ key, pressed, pressedMs });
     if (keyEvents.size() == 1 && pressed) {
       executeNextKeyEventAt = GetMsPassedFromStart();
